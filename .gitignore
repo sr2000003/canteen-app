@@ -1,3 +1,6 @@
+.claude/
+.firebase/
+
 # Logs
 logs
 *.log
