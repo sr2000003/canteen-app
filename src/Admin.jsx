@@ -10,6 +10,7 @@ import {
   orderBy,
   getDoc,
 } from "firebase/firestore";
+import * as XLSX from "xlsx";
 
 export default function Admin() {
   const [orders, setOrders] = useState([]);
@@ -77,8 +78,38 @@ export default function Admin() {
   const today = new Date().toLocaleDateString("en-IN");
   const todayOrders = orders.filter((o) => o.date === today);
   const totalAmount = todayOrders.reduce((sum, o) => sum + o.price, 0);
-  const totalBreakfast = todayOrders.filter((o) => o.foodType === "Breakfast").length;
+  const totalSabzi = todayOrders.filter((o) => o.foodType === "Sabzi").length;
   const totalLunch = todayOrders.filter((o) => o.foodType === "Lunch").length;
+
+  const exportToExcel = () => {
+    if (todayOrders.length === 0) {
+      alert("No orders today to export! / आज कोई ऑर्डर नहीं है!");
+      return;
+    }
+    const rows = todayOrders.map((o, i) => ({
+      "Sr No": i + 1,
+      "Name / नाम": o.name,
+      "Employee ID": o.employeeId,
+      "Phone / फ़ोन": o.phone,
+      "Meal / खाना": o.foodType,
+      "Amount (₹) / राशि": o.price,
+      "Time / समय": new Date(o.timestamp).toLocaleTimeString("en-IN"),
+      "Date / तारीख": o.date,
+    }));
+
+    // Summary rows at the bottom
+    rows.push({});
+    rows.push({ "Sr No": "SUMMARY", "Name / नाम": "", "Employee ID": "", "Phone / फ़ोन": "", "Meal / खाना": "Sabzi / सब्ज़ी", "Amount (₹) / राशि": totalSabzi, "Time / समय": "", "Date / तारीख": "" });
+    rows.push({ "Sr No": "", "Name / नाम": "", "Employee ID": "", "Phone / फ़ोन": "", "Meal / खाना": "Lunch / दोपहर का खाना", "Amount (₹) / राशि": totalLunch, "Time / समय": "", "Date / तारीख": "" });
+    rows.push({ "Sr No": "", "Name / नाम": "", "Employee ID": "", "Phone / फ़ोन": "", "Meal / खाना": "Total Orders / कुल ऑर्डर", "Amount (₹) / राशि": todayOrders.length, "Time / समय": "", "Date / तारीख": "" });
+    rows.push({ "Sr No": "", "Name / नाम": "", "Employee ID": "", "Phone / फ़ोन": "", "Meal / खाना": "Total Amount / कुल राशि", "Amount (₹) / राशि": `₹${totalAmount}`, "Time / समय": "", "Date / तारीख": "" });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [{ wch: 6 }, { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Orders ${today}`);
+    XLSX.writeFile(wb, `Canteen_Orders_${today.replace(/\//g, "-")}.xlsx`);
+  };
 
   if (loading) return <p style={{ padding: "2rem" }}>Checking access...</p>;
 
@@ -188,8 +219,8 @@ export default function Admin() {
           <p style={{ fontSize: "2rem", margin: "0.5rem 0 0 0" }}>{todayOrders.length}</p>
         </div>
         <div style={{ background: "#fff3e0", padding: "1rem", borderRadius: "8px", flex: 1 }}>
-          <h4 style={{ margin: 0 }}>🌅 Breakfast</h4>
-          <p style={{ fontSize: "2rem", margin: "0.5rem 0 0 0" }}>{totalBreakfast}</p>
+          <h4 style={{ margin: 0 }}>🥘 Sabzi / सब्ज़ी</h4>
+          <p style={{ fontSize: "2rem", margin: "0.5rem 0 0 0" }}>{totalSabzi}</p>
         </div>
         <div style={{ background: "#f3e5f5", padding: "1rem", borderRadius: "8px", flex: 1 }}>
           <h4 style={{ margin: 0 }}>🍛 Lunch</h4>
@@ -202,7 +233,15 @@ export default function Admin() {
       </div>
 
       {/* Orders Table */}
-      <h3>📋 Today's Orders / आज के ऑर्डर</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <h3 style={{ margin: 0 }}>📋 Today's Orders / आज के ऑर्डर</h3>
+        <button
+          onClick={exportToExcel}
+          style={{ padding: "0.5rem 1.1rem", background: "#1B5E20", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: 600, fontSize: "0.9rem" }}
+        >
+          📥 Download Excel
+        </button>
+      </div>
       {todayOrders.length === 0 ? (
         <p style={{ color: "gray" }}>No orders yet today.</p>
       ) : (
