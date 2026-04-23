@@ -13,6 +13,7 @@ export default function Order() {
   const [orderState, setOrderState] = useState("idle"); // idle | confetti | preparing
   const [placedOrder, setPlacedOrder] = useState(null);
   const [prepStep, setPrepStep] = useState(0);
+  const [alreadyOrdered, setAlreadyOrdered] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -21,8 +22,24 @@ export default function Order() {
         const user = auth.currentUser;
         const q = query(collection(db, "employees"), where("uid", "==", user.uid));
         const snap = await getDocs(q);
-        if (!snap.empty) setEmployee(snap.docs[0].data());
-        else setMessage("Employee profile not found. Contact HR.");
+        if (!snap.empty) {
+          const emp = snap.docs[0].data();
+          setEmployee(emp);
+          // Check if already ordered today
+          const today = new Date().toLocaleDateString("en-IN");
+          const todaySnap = await getDocs(query(
+            collection(db, "orders"),
+            where("uid", "==", user.uid),
+            where("date", "==", today)
+          ));
+          if (!todaySnap.empty) {
+            setAlreadyOrdered(true);
+            const o = todaySnap.docs[0].data();
+            setPlacedOrder({ foodType: o.foodType, price: o.price });
+          }
+        } else {
+          setMessage("Employee profile not found. Contact HR.");
+        }
       } catch (err) {
         setMessage("Error loading profile: " + err.message);
       }
@@ -42,15 +59,15 @@ export default function Order() {
     frame();
   };
 
-  const getPrice = () => {
-    if (foodType === "Breakfast") return 17;
-    if (foodType === "Lunch") return 35;
+  const getPrice = (type) => {
+    if (type === "Sabzi") return 17;
+    if (type === "Lunch") return 35;
     return 0;
   };
 
   const placeOrder = async () => {
     if (!foodType) {
-      setMessage("Breakfast या Lunch चुनें / Please select Breakfast or Lunch.");
+      setMessage("Sabzi या Lunch चुनें / Please select Sabzi or Lunch.");
       return;
     }
     setPlacing(true);
@@ -68,29 +85,33 @@ export default function Order() {
         setPlacing(false);
         return;
       }
+
+      // Block if already ordered anything today
       const today = new Date().toLocaleDateString("en-IN");
       const dupSnap = await getDocs(query(
         collection(db, "orders"),
         where("uid", "==", auth.currentUser.uid),
-        where("date", "==", today),
-        where("foodType", "==", foodType)
+        where("date", "==", today)
       ));
       if (!dupSnap.empty) {
-        setMessage(`❌ आज का ${foodType} ऑर्डर पहले ही हो चुका है / Already ordered ${foodType} today!`);
+        setMessage("❌ आज का ऑर्डर पहले ही हो चुका है / You have already ordered today!");
+        setAlreadyOrdered(true);
         setPlacing(false);
         return;
       }
+
+      const price = getPrice(foodType);
       await addDoc(collection(db, "orders"), {
         uid: auth.currentUser.uid,
         employeeId: employee.employeeId,
         name: employee.name,
         phone: employee.phone,
         foodType,
-        price: getPrice(),
+        price,
         timestamp: new Date().toISOString(),
         date: today,
       });
-      setPlacedOrder({ foodType, price: getPrice(), time: new Date() });
+      setPlacedOrder({ foodType, price });
       setOrderState("confetti");
       launchConfetti();
       timerRef.current = setTimeout(() => {
@@ -110,6 +131,12 @@ export default function Order() {
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
+  const getMealLabel = (type) => {
+    if (type === "Sabzi") return "Sabzi / सब्ज़ी";
+    if (type === "Lunch") return "Lunch / दोपहर का खाना";
+    return type;
+  };
+
   if (loading) return (
     <div className="card" style={{ textAlign: "center" }}>
       <div style={{ fontSize: "2rem", animation: "spin 1s linear infinite" }}>⏳</div>
@@ -125,7 +152,7 @@ export default function Order() {
       <h2 style={{ color: "#4CAF50", margin: "0.5rem 0" }}>Order Placed!</h2>
       <p style={{ color: "#555", margin: 0 }}>ऑर्डर हो गया!</p>
       <p style={{ color: "#888", fontSize: "0.85rem", marginTop: "0.5rem" }}>
-        {placedOrder?.foodType} · ₹{placedOrder?.price}
+        {getMealLabel(placedOrder?.foodType)} · ₹{placedOrder?.price}
       </p>
     </div>
   );
@@ -133,7 +160,7 @@ export default function Order() {
   if (orderState === "preparing") return (
     <div className="card" style={{ textAlign: "center" }}>
       <div style={{ fontSize: "3.5rem", animation: "bounce 1s infinite", marginBottom: "0.5rem" }}>
-        {placedOrder?.foodType === "Breakfast" ? "🍳" : "🍛"}
+        {placedOrder?.foodType === "Sabzi" ? "🥘" : "🍛"}
       </div>
       <h2 style={{ margin: "0 0 0.25rem" }}>Your order is being prepared!</h2>
       <p style={{ margin: "0 0 1.5rem", color: "#888" }}>आपका ऑर्डर तैयार हो रहा है!</p>
@@ -165,9 +192,27 @@ export default function Order() {
       <div style={{ background: "#f9f9f9", borderRadius: "10px", padding: "1rem", textAlign: "left", fontSize: "0.9rem" }}>
         <p style={{ margin: "0 0 0.35rem" }}><b>Name / नाम:</b> {employee.name}</p>
         <p style={{ margin: "0 0 0.35rem" }}><b>ID:</b> {employee.employeeId}</p>
-        <p style={{ margin: "0 0 0.35rem" }}><b>Meal / खाना:</b> {placedOrder?.foodType === "Breakfast" ? "Breakfast / नाश्ता" : "Lunch / दोपहर का खाना"}</p>
+        <p style={{ margin: "0 0 0.35rem" }}><b>Meal / खाना:</b> {getMealLabel(placedOrder?.foodType)}</p>
         <p style={{ margin: 0 }}><b>Amount / राशि:</b> ₹{placedOrder?.price}</p>
       </div>
+    </div>
+  );
+
+  // Already ordered today — show locked screen
+  if (alreadyOrdered) return (
+    <div className="card" style={{ textAlign: "center" }}>
+      <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>✅</div>
+      <h2 style={{ margin: "0 0 0.25rem" }}>Already Ordered Today!</h2>
+      <p style={{ color: "#888", margin: "0 0 1.5rem" }}>आज का ऑर्डर हो चुका है</p>
+      <div style={{ background: "#f0f4ff", borderRadius: "10px", padding: "1rem", textAlign: "left", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
+        <p style={{ margin: "0 0 0.35rem" }}><b>Name / नाम:</b> {employee.name}</p>
+        <p style={{ margin: "0 0 0.35rem" }}><b>Meal / खाना:</b> {getMealLabel(placedOrder?.foodType)}</p>
+        <p style={{ margin: 0 }}><b>Amount / राशि:</b> ₹{placedOrder?.price}</p>
+      </div>
+      <p style={{ color: "#aaa", fontSize: "0.85rem" }}>एक दिन में केवल एक ऑर्डर / One meal per day only</p>
+      <button onClick={() => signOut(auth)} style={{ marginTop: "1rem", padding: "0.5rem 1.5rem", background: "#f44336", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+        Sign Out / साइन आउट
+      </button>
     </div>
   );
 
@@ -197,7 +242,7 @@ export default function Order() {
 
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
         {[
-          { type: "Breakfast", hi: "नाश्ता", emoji: "🌅", price: 17 },
+          { type: "Sabzi", hi: "सब्ज़ी", emoji: "🥘", price: 17 },
           { type: "Lunch", hi: "दोपहर का खाना", emoji: "🍛", price: 35 },
         ].map(({ type, hi, emoji, price }) => (
           <button
